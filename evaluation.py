@@ -212,12 +212,12 @@ def main():
         groups.setdefault(arr.shape, []).append((f, arr, meta))
 
     # Optimal batch sizes determined via timing sweeps
-    BS_BY_PIXELS = {128*128: 8, 256*256: 4, 512*512: 4}
+    BS_BY_PIXELS = {128*128: 4, 256*256: 8, 512*512: 4}
 
     # warm up cudnn autotuning on each distinct (shape, batch_size) pair outside the timer
     if device == "cuda":
         for shape, items in groups.items():
-            bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], args.batch_size)
+            bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], 4)   # fallback 4, never 1
             bs = min(bs, len(items))
             run_tiled(model, torch.zeros(bs, *shape), device, use_amp)
         torch.cuda.synchronize()
@@ -227,7 +227,7 @@ def main():
     t_compute = 0.0
     
     for shape, items in groups.items():
-        bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], args.batch_size)
+        bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], 4)   # fallback 4, never 1
         for i in range(0, len(items), bs):
             chunk = items[i:i + bs]
             batch = torch.from_numpy(np.stack([c[1] for c in chunk]))
