@@ -111,7 +111,7 @@ class NAFNetSR(nn.Module):
     followed by a PixelShuffle layer for 2x upsampling.
     """
     def __init__(self, channels=1, width=32, scale=2,
-                 enc_blk_nums=None, dec_blk_nums=None):
+                 enc_blk_nums=None, dec_blk_nums=None, hr_blocks=2):
         super().__init__()
         if enc_blk_nums is None:
             enc_blk_nums = [1, 1, 1, 1]
@@ -129,6 +129,12 @@ class NAFNetSR(nn.Module):
         # Upsampling module for Super Resolution
         self.upconv1 = nn.Conv2d(width, width * (scale ** 2), 3, 1, 1, bias=True)
         self.pixel_shuffle = nn.PixelShuffle(scale)
+        # HR-resolution processing. Previously a single 3x3 conv had to
+        # synthesize ALL high-frequency detail, which is why this model
+        # scored below bicubic on clean input.
+        self.hr_blocks = nn.Sequential(
+            *[NAFBlock(width) for _ in range(hr_blocks)]) if hr_blocks > 0 \
+            else nn.Identity()
         self.upconv2 = nn.Conv2d(width, channels, 3, 1, 1, bias=True)
         
         # Global bicubic skip connection (to ease learning)
@@ -144,6 +150,7 @@ class NAFNetSR(nn.Module):
         # Upsample features
         residual = self.upconv1(feat)
         residual = self.pixel_shuffle(residual)
+        residual = self.hr_blocks(residual)
         residual = self.upconv2(residual)
         
         return base + residual

@@ -25,7 +25,7 @@ These degradations obscure nanoscale defects, reducing inspection accuracy and m
 sem-model/
 ├── model.py          # NAFNetSR architecture (SimpleGate, SCA, NAFBlock, UNet, PixelShuffle)
 ├── dataset.py        # Paired data loading with augmentation (.npy and image formats)
-├── losses.py         # Combined loss: L1 + MS-SSIM + LPIPS (perceptual)
+├── losses.py         # Combined loss: L1 + SSIM + LPIPS (perceptual)
 ├── train.py          # Main training script (configurable architecture + loss)
 ├── sweep.py          # Hyperparameter sweep (25 configs × 100 epochs, resumable)
 ├── infer.py          # Visual inference — generates .png files for inspection
@@ -153,7 +153,7 @@ Total Loss = L1 + (ssim_weight × SSIM_loss) + (lpips_weight × LPIPS_loss)
 | Component | What it optimizes | Weight | Details |
 |---|---|---|---|
 | **L1 Loss** | Pixel-level fidelity → **PSNR** | 1.0 (fixed) | Mean absolute error between pred and GT |
-| **MS-SSIM Loss** | Structural similarity → **SSIM** | `--ssim_weight` (default: 0.2) | `1 - SSIM(pred, GT)`. Pred clamped to `[0,1]` before computation for mathematical correctness |
+| **SSIM Loss** | Structural similarity → **SSIM** | `--ssim_weight` (default: 0.2) | `1 - SSIM(pred, GT)`. Pred clamped to `[0,1]` before computation for mathematical correctness |
 | **LPIPS Loss** | Perceptual quality → **LPIPS** | `--lpips_weight` (default: 0.1) | AlexNet backbone. Grayscale images are replicated to 3 channels. Set to 0.0 to disable (saves memory and time) |
 
 ---

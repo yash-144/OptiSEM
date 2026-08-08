@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 
@@ -31,10 +32,14 @@ def _list_images(root):
 
 
 class PairedRestorationDataset(Dataset):
-    def __init__(self, gt_dir, degraded_dir, channels=1, patch_size=96, train=True):
+    def __init__(self, gt_dir, degraded_dir, channels=1, patch_size=96, train=True,
+                 synth_prob=0.0, noise_a=0.1673, noise_p=0.811):
         self.channels = channels
         self.patch_size = patch_size
         self.train = train
+        self.synth_prob = synth_prob
+        self.noise_a = noise_a      # sigma(mu) = noise_a * mu**noise_p
+        self.noise_p = noise_p      # fitted: Var = 0.0280 * mu^1.622
 
         gt_files = _list_images(gt_dir)
         deg_files = _list_images(degraded_dir)
@@ -59,6 +64,23 @@ class PairedRestorationDataset(Dataset):
     def __len__(self):
         return len(self.pairs)
 
+    def _synth_degrade(self, gt_patch):
+        """gt_patch: [C, 2*ps, 2*ps] in [0,1]  ->  degraded [C, ps, ps]."""
+        mode = random.choice(["bicubic", "bilinear", "area"])
+        x = gt_patch.unsqueeze(0)
+        if mode == "area":
+            lr = F.interpolate(x, scale_factor=0.5, mode="area")
+        else:
+            lr = F.interpolate(x, scale_factor=0.5, mode=mode,
+                               align_corners=False, antialias=True)
+        # MANDATORY: bicubic/bilinear overshoot below 0, and pow() of a
+        # negative with a fractional exponent is NaN.
+        lr = lr.squeeze(0).clamp_min(0.0)
+
+        scale = random.uniform(0.0, 2.5)          # 0.0 forces SR learning
+        sigma = self.noise_a * scale * lr.pow(self.noise_p)
+        return lr + torch.randn_like(lr) * sigma
+
     def _load(self, path):
         if path.endswith('.npy'):
             arr = np.load(path).astype(np.float32)
@@ -82,6 +104,11 @@ class PairedRestorationDataset(Dataset):
         if (gh, gw) != (dh * 2, dw * 2):
             # keeps training robust if a few pairs in the dataset don't
             # follow the exact 2x rule
+            if not getattr(PairedRestorationDataset, "_warned_scale", False):
+                print(f"[dataset] WARNING: non-2x pair {Path(gt_path).name}: "
+                      f"GT {gh}x{gw} vs deg {dh}x{dw}. GT is being resized — "
+                      f"check whether your dataset mixes 2x and 4x pairs.")
+                PairedRestorationDataset._warned_scale = True
             gt = torch.nn.functional.interpolate(
                 gt.unsqueeze(0), size=(dh * 2, dw * 2), mode="bicubic", align_corners=False
             ).squeeze(0).clamp(0, 1)
@@ -99,9 +126,14 @@ class PairedRestorationDataset(Dataset):
             deg = deg[:, top:top + ps, left:left + ps]
             gt = gt[:, top * 2:(top + ps) * 2, left * 2:(left + ps) * 2]
 
+            if self.synth_prob > 0 and random.random() < self.synth_prob:
+                deg = self._synth_degrade(gt)
+
             if random.random() < 0.5:
                 deg, gt = deg.flip(-1), gt.flip(-1)
             if random.random() < 0.5:
                 deg, gt = deg.flip(-2), gt.flip(-2)
+            if random.random() < 0.5:
+                deg, gt = deg.transpose(-2, -1), gt.transpose(-2, -1)
 
         return deg, gt

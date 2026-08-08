@@ -25,6 +25,7 @@ Usage:
 import argparse
 import csv
 import json
+import math
 import os
 import random
 import time
@@ -37,6 +38,33 @@ from dataset import PairedRestorationDataset
 from losses import RestorationLoss
 from model import NAFNetSR
 
+class EMA:
+    """Exponential moving average of model weights."""
+    def __init__(self, model, decay=0.999):
+        self.decay  = decay
+        self.shadow = {k: v.detach().clone().float()
+                       for k, v in model.state_dict().items()}
+        self.backup = None
+
+    @torch.no_grad()
+    def update(self, model):
+        for k, v in model.state_dict().items():
+            if v.dtype.is_floating_point:
+                self.shadow[k].mul_(self.decay).add_(v.detach().float(),
+                                                     alpha=1.0 - self.decay)
+            else:
+                self.shadow[k] = v.detach().clone().float()
+
+    def store_and_apply(self, model):
+        msd = model.state_dict()
+        self.backup = {k: v.detach().clone() for k, v in msd.items()}
+        model.load_state_dict({k: self.shadow[k].to(msd[k].dtype) for k in msd})
+
+    def restore(self, model):
+        if self.backup is not None:
+            model.load_state_dict(self.backup)
+            self.backup = None
+
 
 # ──────────────────────────────────────────────────────────────
 # 25 Configurations
@@ -46,48 +74,14 @@ from model import NAFNetSR
 # ──────────────────────────────────────────────────────────────
 CONFIGS = [
     # id   lr       bs   patch  width  enc_blocks    ssim_w
-    # ── Learning rate sweep (baseline: bs=8, ps=96, w=32, enc=[1,1,1,1]) ──
-    (1,   2e-4,    8,   96,   32,  [1,1,1,1],     0.20),
-    (2,   5e-4,    8,   96,   32,  [1,1,1,1],     0.20),
-    (3,   1e-3,    8,   96,   32,  [1,1,1,1],     0.20),
-    # (4,   2e-3,    8,   96,   32,  [1,1,1,1],     0.20), # skipped (NaN)
-    # (5,   3e-3,    8,   96,   32,  [1,1,1,1],     0.20), # skipped (NaN)
-
-    # ── Batch size sweep ──
-    (6,   2e-4,    4,   96,   32,  [1,1,1,1],     0.20),
-    (7,   2e-4,   16,   96,   32,  [1,1,1,1],     0.20),
-    (8,   2e-4,   32,   96,   32,  [1,1,1,1],     0.20),
-
-    # ── Patch size sweep ──
-    (9,   2e-4,    8,   64,   32,  [1,1,1,1],     0.20),
-    (10,  2e-4,    8,  128,   32,  [1,1,1,1],     0.20),
-    (11,  2e-4,    8,  160,   32,  [1,1,1,1],     0.20),
-
-    # ── Model width sweep ──
-    (12,  2e-4,    8,   96,   16,  [1,1,1,1],     0.20),
-    (13,  2e-4,    8,   96,   48,  [1,1,1,1],     0.20),
-    (14,  2e-4,    8,   96,   64,  [1,1,1,1],     0.20),
-
-    # ── Encoder depth sweep ──
-    (15,  2e-4,    8,   96,   32,  [2,2,2,2],     0.20),
-    (16,  2e-4,    8,   96,   32,  [2,2,4,4],     0.20),
-    (17,  2e-4,    8,   96,   32,  [2,2,4,8],     0.20),
-
-    # ── SSIM weight sweep ──
-    (18,  2e-4,    8,   96,   32,  [1,1,1,1],     0.00),
-    (19,  2e-4,    8,   96,   32,  [1,1,1,1],     0.10),
-    (20,  2e-4,    8,   96,   32,  [1,1,1,1],     0.30),
-    (21,  2e-4,    8,   96,   32,  [1,1,1,1],     0.50),
-
-    # ── Promising combinations ──
-    (22,  2e-4,   16,  128,   48,  [2,2,2,2],     0.20),  # bigger everything
-    (23,  2e-4,    8,  128,   64,  [2,2,4,4],     0.25),  # deep + large patches
-    (24,  2e-4,    8,   96,   48,  [2,2,4,8],     0.20),  # deep + medium width
-    (25,  2e-4,   16,   96,   32,  [2,2,2,2],     0.15),  # stable lr + depth
+    (101, 2e-4,    8,   96,   32,  [1,1,1,1],     0.20),
+    (102, 5e-4,    8,   96,   32,  [1,1,1,1],     0.20),
+    (103, 1e-3,    8,   96,   32,  [1,1,1,1],     0.20),
 ]
 
 
 def psnr_metric(pred, target):
+    pred = pred.clamp(0, 1)
     mse = torch.mean((pred - target) ** 2).item()
     if mse == 0:
         return 100.0
@@ -110,6 +104,7 @@ def run_config(cfg_id, lr, batch_size, patch_size, width, enc_blocks,
     full_ds = PairedRestorationDataset(
         args.gt_dir, args.degraded_dir,
         channels=args.channels, patch_size=patch_size, train=True,
+        synth_prob=args.synth_prob,
     )
     n_val   = max(1, int(len(full_ds) * 0.05))
     n_train = len(full_ds) - n_val
@@ -128,6 +123,9 @@ def run_config(cfg_id, lr, batch_size, patch_size, width, enc_blocks,
     )
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=2)
 
+    TARGET_STEPS = 12000
+    args.probe_epochs = max(1, TARGET_STEPS // len(train_loader))
+
     model = NAFNetSR(
         channels=args.channels, width=width, scale=2,
         enc_blk_nums=enc_blocks, dec_blk_nums=enc_blocks,
@@ -138,11 +136,20 @@ def run_config(cfg_id, lr, batch_size, patch_size, width, enc_blocks,
         ssim_weight=ssim_w, lpips_weight=0.0, device=device
     ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.probe_epochs
-    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr,
+                                  betas=(0.9, 0.9), weight_decay=1e-3)
+    total_steps  = args.probe_epochs * len(train_loader)
+    warmup_steps = min(500, max(1, total_steps // 20))
+
+    def _lr_lambda(step):
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        p = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return 0.5 * (1.0 + math.cos(math.pi * p))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _lr_lambda)
     scaler = torch.amp.GradScaler('cuda', enabled=args.amp)
+    ema = EMA(model, decay=0.999)
 
     best_psnr   = -1.0
     no_improve  = 0
@@ -158,14 +165,20 @@ def run_config(cfg_id, lr, batch_size, patch_size, width, enc_blocks,
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast('cuda', enabled=args.amp):
                 pred = model(deg)
-                loss, _, _, _ = criterion(pred, gt)
+            # Loss in fp32: SSIM's variance terms lose all precision in fp16
+            # once pred ~= target, giving negative variance -> NaN.
+            loss, _, _, _ = criterion(pred.float(), gt.float())
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(optimizer)
             scaler.update()
+            ema.update(model)
+            scheduler.step()
             running_loss += loss.item()
-        scheduler.step()
 
         # Validation
+        ema.store_and_apply(model)
         model.eval()
         val_psnr_total = 0.0
         with torch.no_grad():
@@ -190,8 +203,9 @@ def run_config(cfg_id, lr, batch_size, patch_size, width, enc_blocks,
                 "cfg": dict(lr=lr, batch_size=batch_size, patch_size=patch_size,
                             width=width, enc_blocks=enc_blocks, ssim_w=ssim_w),
             }, ckpt_dir / "best.pth")
-        else:
             no_improve += 1
+            
+        ema.restore(model)
 
         # Print every 10 epochs
         if (epoch + 1) % 10 == 0 or epoch == 0:
@@ -218,6 +232,7 @@ def main():
     p.add_argument("--gt_dir",         required=True)
     p.add_argument("--degraded_dir",   required=True)
     p.add_argument("--channels",       type=int,   default=1)
+    p.add_argument("--synth_prob",     type=float, default=0.0)
     p.add_argument("--probe_epochs",   type=int,   default=100,
                    help="Epochs per config (100-120 recommended)")
     p.add_argument("--amp",            action="store_true")

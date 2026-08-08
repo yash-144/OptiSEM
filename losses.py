@@ -32,9 +32,8 @@ class RestorationLoss(nn.Module):
         l1_loss = self.l1(pred, target)
 
         # 2. SSIM Loss (clamp pred to [0,1] so data_range=1.0 is valid)
-        pred_clamped = pred.clamp(0, 1)
-        target_clamped = target.clamp(0, 1)
-        ssim_val = ssim_fn(pred_clamped, target_clamped, data_range=1.0, size_average=True)
+        pred_st = pred + (pred.clamp(0, 1) - pred).detach()
+        ssim_val = ssim_fn(pred_st, target.clamp(0, 1), data_range=1.0, size_average=True)
         ssim_loss = 1 - ssim_val
 
         # 3. LPIPS Loss (skipped if weight is 0)
@@ -49,4 +48,4 @@ class RestorationLoss(nn.Module):
             lpips_loss = torch.tensor(0.0, device=pred.device)
 
         total = l1_loss + (self.ssim_weight * ssim_loss) + (self.lpips_weight * lpips_loss)
-        return total, l1_loss.item(), ssim_val.item(), lpips_loss.item()
+        return total, l1_loss.detach(), ssim_val.detach(), lpips_loss.detach()
