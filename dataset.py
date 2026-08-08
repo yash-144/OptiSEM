@@ -66,30 +66,44 @@ class PairedRestorationDataset(Dataset):
 
     def _synth_degrade(self, gt_patch):
         """gt_patch: [C, 2*ps, 2*ps] in [0,1]  ->  degraded [C, ps, ps]."""
-        mode = random.choice(["bicubic", "bilinear", "area"])
         x = gt_patch.unsqueeze(0)
-        if mode == "area":
-            lr = F.interpolate(x, scale_factor=0.5, mode="area")
-        else:
-            lr = F.interpolate(x, scale_factor=0.5, mode=mode,
-                               align_corners=False, antialias=True)
-        # MANDATORY: bicubic/bilinear overshoot below 0, and pow() of a
-        # negative with a fractional exponent is NaN.
-        lr = lr.squeeze(0).clamp_min(0.0)
+        
+        # 30% chance to use the empirically fitted power-law noise
+        if random.random() < 0.3:
+            mode = random.choice(["bicubic", "bilinear", "area"])
+            if mode == "area":
+                lr = F.interpolate(x, scale_factor=0.5, mode="area")
+            else:
+                lr = F.interpolate(x, scale_factor=0.5, mode=mode, align_corners=False, antialias=True)
+            lr = lr.squeeze(0)
+            scale = random.uniform(0.0, 2.5)
+            # Use .abs() instead of clamp_min(0.0) to preserve signal range
+            sigma = self.noise_a * scale * lr.abs().pow(self.noise_p)
+            return lr + torch.randn_like(lr) * sigma
 
-        scale = random.uniform(0.0, 2.5)          # 0.0 forces SR learning
-        r = random.random()
-        if r < 0.7:
-            # Power-law (current)
-            sigma = self.noise_a * scale * lr.pow(self.noise_p)
-        elif r < 0.85:
-            # Additive Gaussian
-            sigma = random.uniform(0.01, 0.15)
-        else:
-            # Poisson-like
-            sigma = random.uniform(0.02, 0.1) * lr.sqrt()
-            
-        return lr + torch.randn_like(lr) * sigma
+        # 70% chance to use the official 3 degradations in random order
+        order = [0, 1, 2]
+        random.shuffle(order)
+        
+        curr = x
+        for op in order:
+            if op == 0:
+                # Additive Gaussian
+                sigma = random.uniform(0.01, 0.15)
+                curr = curr + torch.randn_like(curr) * sigma
+            elif op == 1:
+                # Speckle (Multiplicative)
+                sigma = random.uniform(0.05, 0.3)
+                curr = curr + curr * torch.randn_like(curr) * sigma
+            elif op == 2:
+                # Downsample
+                mode = random.choice(["bicubic", "bilinear", "area"])
+                if mode == "area":
+                    curr = F.interpolate(curr, scale_factor=0.5, mode="area")
+                else:
+                    curr = F.interpolate(curr, scale_factor=0.5, mode=mode, align_corners=False, antialias=True)
+                    
+        return curr.squeeze(0)
 
     def _load(self, path):
         if path.endswith('.npy'):

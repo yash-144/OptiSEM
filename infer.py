@@ -3,8 +3,8 @@ Inference script — generates visual .png files for quick inspection.
 
 Usage:
     python infer.py \
-        --input_dir dataset/train/NoisyLR \
-        --output_dir dataset/quick_results \
+        --input_directory dataset/train/NoisyLR \
+        --output_directory dataset/quick_results \
         --checkpoint checkpoints/best.pth \
         --channels 1
 """
@@ -20,8 +20,8 @@ from model import NAFNetSR
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--input_dir", required=True, help="Path to degraded test images")
-    p.add_argument("--output_dir", required=True, help="Path to save restored images")
+    p.add_argument("--input_directory", required=True, help="Path to degraded test images")
+    p.add_argument("--output_directory", required=True, help="Path to save restored images")
     p.add_argument("--checkpoint", default="checkpoints/best.pth", help="Path to model weights")
     p.add_argument("--channels", type=int, default=1, help="1=grayscale, 3=RGB")
     args = p.parse_args()
@@ -54,16 +54,16 @@ def main():
     print(f"Loaded checkpoint from epoch {ckpt.get('epoch', 'unknown')} "
           f"(width={width}, enc={enc_blocks})")
 
-    out_dir = Path(args.output_dir)
+    out_dir = Path(args.output_directory)
     out_dir.mkdir(parents=True, exist_ok=True)
     
     exts = ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.npy")
     test_files = []
     for ext in exts:
-        test_files.extend(glob.glob(os.path.join(args.input_dir, "**", ext), recursive=True))
+        test_files.extend(glob.glob(os.path.join(args.input_directory, "**", ext), recursive=True))
 
     if not test_files:
-        print(f"No images found in {args.input_dir}!")
+        print(f"No images found in {args.input_directory}!")
         return
 
     print(f"Found {len(test_files)} images. Starting inference...")
