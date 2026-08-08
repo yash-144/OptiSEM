@@ -115,10 +115,12 @@ def main():
 
     # Deterministic stride split — identical rule to metrics.py, so the
     # numbers you put on Slide 6 come from data the model never saw.
-    n_total = len(train_full)
-    val_indices = list(range(0, n_total, args.val_stride))
+    # Val must cover SEM pairs ONLY — identical protocol to Model C.
+    # DIV2K images (indices >= n_pairs) are train-only.
+    n_pairs = len(train_full.pairs)
+    val_indices = list(range(0, n_pairs, args.val_stride))
     val_set = set(val_indices)
-    train_indices = [i for i in range(n_total) if i not in val_set]
+    train_indices = [i for i in range(len(train_full)) if i not in val_set]
 
     train_ds = Subset(train_full, train_indices)
     val_ds = Subset(val_full, val_indices)
