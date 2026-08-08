@@ -68,8 +68,10 @@ def main():
         st = ck.get("model", ck.get("state_dict", ck))
         st = {k.replace("_orig_mod.", "").replace("module.", ""): v
               for k, v in st.items()}
+        hr_blocks = int(cfg.get("hr_blocks", 0))
         model = NAFNetSR(channels=a.channels, width=int(cfg.get("width", 32)),
-                         scale=2, enc_blk_nums=list(enc), dec_blk_nums=list(enc))
+                         scale=2, enc_blk_nums=list(enc), dec_blk_nums=list(enc),
+                         hr_blocks=hr_blocks)
         model.load_state_dict(st); model = model.to(dev).eval()
 
     rows = {"bicubic": [], "model": []}

@@ -134,6 +134,7 @@ def main():
     model = NAFNetSR(channels=args.channels, width=args.width, scale=2,
                      enc_blk_nums=enc_blocks, dec_blk_nums=dec_blocks,
                      hr_blocks=args.hr_blocks).to(device)
+
     criterion = RestorationLoss(ssim_weight=args.ssim_weight,
                                 lpips_weight=args.lpips_weight,
                                 device=device).to(device)

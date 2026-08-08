@@ -35,6 +35,7 @@ from model import NAFNetSR
 
 HERE = Path(__file__).resolve().parent
 PAD_MULTIPLE = 16          # 4 encoder stages, each stride 2
+TILE, OVERLAP = 128, 16
 IMG_EXTS = (".npy", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
 
 
@@ -51,16 +52,21 @@ def load_image(path, channels):
 
     from PIL import Image
     img = Image.open(path)
-    dtype = np.uint16 if img.mode in ("I;16", "I") else np.uint8
+    if img.mode in ("I;16", "I;16B", "I;16L", "I"):
+        arr = np.asarray(img, dtype=np.float32) / 65535.0
+        if arr.ndim == 2:
+            arr = arr[None]
+        return arr, {"kind": "img", "suffix": path.suffix,
+                     "dtype": np.uint16, "scale": 65535.0}
     img = img.convert("L" if channels == 1 else "RGB")
     arr = np.asarray(img, dtype=np.float32)
-    scale = 65535.0 if dtype is np.uint16 else 255.0
+    scale = 255.0
     arr = arr / scale
     if arr.ndim == 2:
         arr = arr[None]
     else:
         arr = arr.transpose(2, 0, 1)
-    return arr, {"kind": "img", "suffix": path.suffix, "dtype": dtype, "scale": scale}
+    return arr, {"kind": "img", "suffix": path.suffix, "dtype": np.uint8, "scale": scale}
 
 
 def save_image(arr, out_path, meta):
@@ -130,6 +136,39 @@ def run_batch(model, batch, device, use_amp):
     return out[:, :, : h * 2, : w * 2].clamp_(0, 1)
 
 
+@torch.no_grad()
+def run_tiled(model, batch, device, use_amp):
+    n, c, h, w = batch.shape
+    if h <= TILE and w <= TILE:
+        return run_batch(model, batch, device, use_amp)
+    step = TILE - OVERLAP
+    out  = torch.zeros(n, c, h * 2, w * 2, device=device)
+    wsum = torch.zeros(1, 1, h * 2, w * 2, device=device)
+    ys = sorted({*range(0, max(h - TILE, 0) + 1, step), max(h - TILE, 0)})
+    xs = sorted({*range(0, max(w - TILE, 0) + 1, step), max(w - TILE, 0)})
+    r = OVERLAP * 2
+    for y in ys:
+        for x in xs:
+            win_y = torch.ones(TILE * 2, device=device)
+            if y > 0:
+                win_y[:r] = torch.linspace(0, 1, r, device=device)
+            if y < ys[-1]:
+                win_y[-r:] = torch.linspace(1, 0, r, device=device)
+                
+            win_x = torch.ones(TILE * 2, device=device)
+            if x > 0:
+                win_x[:r] = torch.linspace(0, 1, r, device=device)
+            if x < xs[-1]:
+                win_x[-r:] = torch.linspace(1, 0, r, device=device)
+                
+            win = (win_y[:, None] * win_x[None, :])[None, None]
+            
+            t = run_batch(model, batch[:, :, y:y+TILE, x:x+TILE], device, use_amp)
+            out [:, :, y*2:(y+TILE)*2, x*2:(x+TILE)*2] += t * win
+            wsum[:, :, y*2:(y+TILE)*2, x*2:(x+TILE)*2] += win
+    return (out / wsum.clamp_min(1e-8)).clamp_(0, 1)
+
+
 def main():
     p = argparse.ArgumentParser(description="KLA Hackathon Evaluation Script")
     p.add_argument("input_dir")
@@ -175,7 +214,7 @@ def main():
     # warm up cudnn autotuning on each distinct shape, outside the timer
     if device == "cuda":
         for shape in groups:
-            run_batch(model, torch.zeros(1, *shape), device, use_amp)
+            run_tiled(model, torch.zeros(1, *shape), device, use_amp)
         torch.cuda.synchronize()
 
     t0 = time.perf_counter()
@@ -184,9 +223,12 @@ def main():
         for i in range(0, len(items), args.batch_size):
             chunk = items[i:i + args.batch_size]
             batch = torch.from_numpy(np.stack([c[1] for c in chunk]))
-            out = run_batch(model, batch, device, use_amp).cpu().numpy()
+            out = run_tiled(model, batch, device, use_amp).cpu().numpy()
             for (path, _, meta), pred in zip(chunk, out):
-                save_image(pred, out_dir / path.stem, meta)
+                rel_path = path.relative_to(in_dir)
+                out_path = out_dir / rel_path.parent / path.stem
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                save_image(pred, out_path, meta)
                 n += 1
     if device == "cuda":
         torch.cuda.synchronize()

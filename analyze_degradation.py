@@ -167,9 +167,10 @@ def main():
         print("  Good fit. Use these as the CENTER of your randomized range.")
     print()
 
-    # ── Step 3: the generator you should train with ───────────────────
+    # ── Step 3: the generator you should train with (REJECTED) ────────
     print("=" * 68)
-    print("Step 3 — drop this into dataset.py and train on GT alone.")
+    print("Step 3 — NOTE: THIS GENERATOR WAS REJECTED (1106% dark-bin error).")
+    print("It contradicts the power-law model we actually trained on.")
     print("=" * 68)
     print(f'''
 def degrade(gt, rng):

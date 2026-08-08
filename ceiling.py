@@ -91,8 +91,10 @@ def main():
         enc = [int(t) for t in enc.strip("[]").replace(" ", "").split(",") if t]
     st = {k.replace("_orig_mod.", "").replace("module.", ""): v
           for k, v in ck.get("model", ck).items()}
+    hr_blocks = int(cfg.get("hr_blocks", 0))
     model = NAFNetSR(channels=a.channels, width=int(cfg.get("width", 32)),
-                     scale=2, enc_blk_nums=list(enc), dec_blk_nums=list(enc))
+                     scale=2, enc_blk_nums=list(enc), dec_blk_nums=list(enc),
+                     hr_blocks=hr_blocks)
     model.load_state_dict(st); model = model.to(dev).eval()
     n_par = sum(q.numel() for q in model.parameters())
     print(f"Model: width={cfg.get('width', 32)} enc={list(enc)} "
