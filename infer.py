@@ -33,17 +33,23 @@ def main():
     if not os.path.exists(args.checkpoint):
         raise FileNotFoundError(f"Checkpoint not found at {args.checkpoint}. Did you train the model?")
     
-    ckpt = torch.load(args.checkpoint, map_location=device)
-    saved_args = ckpt.get("args", {})
-    width = saved_args.get("width", 32)
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    saved_args = ckpt.get("args", ckpt.get("cfg", {}))
+    if not isinstance(saved_args, dict):
+        saved_args = vars(saved_args)
+    width = int(saved_args.get("width", 32))
     enc_blocks = saved_args.get("enc_blocks", [1, 1, 1, 1])
+    if isinstance(enc_blocks, str):
+        enc_blocks = [int(t) for t in enc_blocks.strip("[]").replace(" ", "").split(",") if t]
     dec_blocks = saved_args.get("dec_blocks", enc_blocks)
+    hr_blocks = int(saved_args.get("hr_blocks", 0))
 
     model = NAFNetSR(
         channels=args.channels, width=width, scale=2,
         enc_blk_nums=enc_blocks, dec_blk_nums=dec_blocks,
+        hr_blocks=hr_blocks,
     ).to(device)
-    model.load_state_dict(ckpt["model"])
+    model.load_state_dict(ckpt.get("model", ckpt.get("state_dict", ckpt)))
     model.eval()
     print(f"Loaded checkpoint from epoch {ckpt.get('epoch', 'unknown')} "
           f"(width={width}, enc={enc_blocks})")
@@ -78,7 +84,19 @@ def main():
                 arr = arr[:, :, None]
             
             x = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(device)
+            
+            # Pad to multiple of 16
+            h, w = x.shape[2:]
+            pad_h = (16 - h % 16) % 16
+            pad_w = (16 - w % 16) % 16
+            if pad_h > 0 or pad_w > 0:
+                x = torch.nn.functional.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+            
             pred = model(x)
+            
+            # Unpad
+            if pad_h > 0 or pad_w > 0:
+                pred = pred[:, :, :h, :w]
             
             # Clamp to valid range
             pred = pred.clamp(0, 1)

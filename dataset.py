@@ -78,7 +78,17 @@ class PairedRestorationDataset(Dataset):
         lr = lr.squeeze(0).clamp_min(0.0)
 
         scale = random.uniform(0.0, 2.5)          # 0.0 forces SR learning
-        sigma = self.noise_a * scale * lr.pow(self.noise_p)
+        r = random.random()
+        if r < 0.7:
+            # Power-law (current)
+            sigma = self.noise_a * scale * lr.pow(self.noise_p)
+        elif r < 0.85:
+            # Additive Gaussian
+            sigma = random.uniform(0.01, 0.15)
+        else:
+            # Poisson-like
+            sigma = random.uniform(0.02, 0.1) * lr.sqrt()
+            
         return lr + torch.randn_like(lr) * sigma
 
     def _load(self, path):

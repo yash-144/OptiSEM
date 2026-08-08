@@ -12,12 +12,20 @@ import torch
 import torch.nn as nn
 from pytorch_msssim import ssim as ssim_fn
 import lpips
+import math
 
+class CharbonnierLoss(nn.Module):
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, x, y):
+        return torch.mean(torch.sqrt((x - y) ** 2 + self.eps))
 
 class RestorationLoss(nn.Module):
     def __init__(self, ssim_weight=0.2, lpips_weight=0.1, device="cuda"):
         super().__init__()
-        self.l1 = nn.L1Loss()
+        self.l1 = CharbonnierLoss()
         self.ssim_weight = ssim_weight
         self.lpips_weight = lpips_weight
 

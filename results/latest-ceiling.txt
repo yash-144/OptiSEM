@@ -1,0 +1,70 @@
+Held-out images: 160
+
+Model: width=32 enc=[1, 1, 1, 1] | 4.56M params
+
+                                         PSNR (dB)      SSIM
+------------------------------------------------------------
+bicubic on real LR                          22.676    0.5316
+YOUR MODEL on real LR                       27.735    0.7783
+------------------------------------------------------------
+bicubic on CLEAN LR (no noise)              31.403    0.8731
+YOUR MODEL on CLEAN LR  <== SR CEILING      31.796    0.8865
+YOUR MODEL, noise 0.5x                      29.066    0.8099
+YOUR MODEL, noise 1.0x                      27.240    0.7522
+
+============================================================
+  SR ceiling (perfect denoising) :  31.80 dB
+  You are at                     :  27.73 dB
+  Headroom from denoising alone  :   4.06 dB
+============================================================
+
+HOW TO READ THIS
+  If the SR ceiling is BELOW your target, the target is unreachable
+  without a bigger model or hallucinated detail — no amount of
+  denoising work gets you there. Spend effort on capacity instead.
+  If the ceiling is well ABOVE your number, noise is your bottleneck
+  and better denoising (capacity, longer training, TTA) will pay.
+
+  Caveat: the model was trained on noisy input, so CLEAN input is
+  mildly out of distribution. Treat the ceiling as approximate.
+
+
+# METRICS
+Held-out split: 160 images
+
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+/usr/local/lib/python3.12/dist-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+Loading model from: /usr/local/lib/python3.12/dist-packages/lpips/weights/v0.1/alex.pth
+method       PSNR (dB)      SSIM     LPIPS
+------------------------------------------
+bicubic         22.676    0.5316    0.4358
+model           27.735    0.7783    0.1413
+
+# OOD STRESS
+Held-out images: 160
+
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+/usr/local/lib/python3.12/dist-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+Loading model from: /usr/local/lib/python3.12/dist-packages/lpips/weights/v0.1/alex.pth
+condition          bicubic PSNR  model PSNR    gain     SSIM    LPIPS
+---------------------------------------------------------------------
+real (in-dist)           22.676      27.735   +5.06   0.7783   0.1413
+noise 0.3x               28.288      30.123   +1.84   0.8404   0.1000
+noise 1.0x               21.999      27.216   +5.22   0.7517   0.1655
+noise 2.5x               15.460      24.643   +9.18   0.6568   0.2499
+noise 4.0x  OOD          12.436      23.286  +10.85   0.6048   0.3075
+noise 6.0x  OOD          10.457      21.006  +10.55   0.4966   0.4305
+gauss-blur  OOD          21.349      25.917   +4.57   0.6972   0.2106
+additive    OOD          22.142      23.761   +1.62   0.5472   0.3868
+
+Read it this way: the 'gain' column on the OOD rows is your claim.
+If it stays clearly positive at 4x/6x and on the unseen operators,
+your degradation pipeline generalizes and you can say so on Slide 5.
+If it collapses, say that honestly and show the limit — a measured
+failure boundary reads far better to a reviewer than no test at all.
