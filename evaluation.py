@@ -211,17 +211,20 @@ def main():
         arr, meta = load_image(f, args.channels)
         groups.setdefault(arr.shape, []).append((f, arr, meta))
 
-    # warm up cudnn autotuning on each distinct shape, outside the timer
+    # Optimal batch sizes determined via timing sweeps
+    BS_BY_PIXELS = {128*128: 8, 256*256: 4, 512*512: 4}
+
+    # warm up cudnn autotuning on each distinct (shape, batch_size) pair outside the timer
     if device == "cuda":
-        for shape in groups:
-            run_tiled(model, torch.zeros(1, *shape), device, use_amp)
+        for shape, items in groups.items():
+            bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], args.batch_size)
+            bs = min(bs, len(items))
+            run_tiled(model, torch.zeros(bs, *shape), device, use_amp)
         torch.cuda.synchronize()
 
     t0 = time.perf_counter()
     n = 0
     t_compute = 0.0
-    # Optimal batch sizes determined via timing sweeps
-    BS_BY_PIXELS = {128*128: 8, 256*256: 4, 512*512: 4}
     
     for shape, items in groups.items():
         bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], args.batch_size)
