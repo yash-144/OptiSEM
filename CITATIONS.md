@@ -2,14 +2,6 @@
 
 In accordance with the competition guidelines allowing external data, and to provide full transparency on the architecture and tools used, we acknowledge the following datasets and papers:
 
-## Datasets
-
-1. **DIV2K (DIVerse 2K resolution high quality images)**
-   - **Source:** [https://data.vision.ee.ethz.ch/cvl/DIV2K/](https://data.vision.ee.ethz.ch/cvl/DIV2K/)
-   - **Citation:** Agustsson, E., & Timofte, R. (2017). NTIRE 2017 Challenge on Single Image Super-Resolution: Dataset and Study. In *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) Workshops*.
-   - **Usage:** ~30% of the training distribution (converted to grayscale, center-cropped, and downscaled) to force the model to generalize across Out-Of-Distribution (OOD) content textures rather than memorizing SEM artifacts.
-   - **License:** CC BY 4.0
-
 
 ## Architecture
 
