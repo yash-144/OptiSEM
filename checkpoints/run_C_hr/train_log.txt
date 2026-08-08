@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/home/yash/Storage/core/sem-model/train.py", line 24, in <module>
+    import torch
+ModuleNotFoundError: No module named 'torch'
+/home/yash/Storage/core/sem-model/venv/lib/python3.10/site-packages/torchvision/models/_utils.py:207: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/yash/Storage/core/sem-model/venv/lib/python3.10/site-packages/torchvision/models/_utils.py:222: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=AlexNet_Weights.IMAGENET1K_V1`. You can also use `weights=AlexNet_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+/home/yash/Storage/core/sem-model/train.py:154: UserWarning: torch.cuda.amp.GradScaler is enabled, but CUDA is not available.  Disabling.
+  scaler = torch.amp.GradScaler('cuda', enabled=args.amp)
+/home/yash/Storage/core/sem-model/venv/lib/python3.10/site-packages/torch/utils/data/dataloader.py:1102: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+Device: cpu
+Train 3040 | Val 160 (stride 20)
+Model: NAFNetSR(width=32, enc=[1, 1, 1, 1]) | synth_prob=0.75
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /home/yash/Storage/core/sem-model/venv/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+/home/yash/Storage/core/sem-model/train.py:196: UserWarning: CUDA is not available or torch_xla is imported. Disabling autocast.
+  with torch.amp.autocast('cuda', enabled=args.amp):
