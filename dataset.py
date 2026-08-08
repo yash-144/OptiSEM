@@ -60,9 +60,13 @@ class PairedRestorationDataset(Dataset):
             )
         # deterministic order -> train/val split stays consistent across runs
         self.pairs = [(deg_by_stem[k], gt_by_stem[k]) for k in common]
+        
+        # Track unpaired GTs (like DIV2K external data) which will be strictly synthetically degraded
+        unpaired_keys = sorted(set(gt_by_stem) - set(deg_by_stem))
+        self.unpaired_gt = [gt_by_stem[k] for k in unpaired_keys]
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.pairs) + len(self.unpaired_gt)
 
     def _synth_degrade(self, gt_patch):
         """gt_patch: [C, 2*ps, 2*ps] in [0,1]  ->  degraded [C, ps, ps]."""
@@ -119,9 +123,18 @@ class PairedRestorationDataset(Dataset):
         return torch.from_numpy(arr).permute(2, 0, 1)  # C,H,W
 
     def __getitem__(self, idx):
-        deg_path, gt_path = self.pairs[idx]
-        deg = self._load(deg_path)
-        gt = self._load(gt_path)
+        if idx < len(self.pairs):
+            deg_path, gt_path = self.pairs[idx]
+            deg = self._load(deg_path)
+            gt = self._load(gt_path)
+            force_synth = False
+        else:
+            gt_path = self.unpaired_gt[idx - len(self.pairs)]
+            gt = self._load(gt_path)
+            # Create dummy LR tensor of half size to satisfy shape checks
+            _, gh, gw = gt.shape
+            deg = torch.zeros((gt.shape[0], gh // 2, gw // 2), dtype=gt.dtype)
+            force_synth = True
 
         _, dh, dw = deg.shape
         _, gh, gw = gt.shape
@@ -150,7 +163,7 @@ class PairedRestorationDataset(Dataset):
             deg = deg[:, top:top + ps, left:left + ps]
             gt = gt[:, top * 2:(top + ps) * 2, left * 2:(left + ps) * 2]
 
-            if self.synth_prob > 0 and random.random() < self.synth_prob:
+            if force_synth or (self.synth_prob > 0 and random.random() < self.synth_prob):
                 deg = self._synth_degrade(gt)
 
             if random.random() < 0.5:
