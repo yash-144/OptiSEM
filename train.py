@@ -73,6 +73,8 @@ def main():
     p.add_argument("--lr", type=float, default=5e-4)
     p.add_argument("--ssim_weight", type=float, default=0.2)
     p.add_argument("--lpips_weight", type=float, default=0.1)
+    p.add_argument("--val_layouts_gt", default=None, help="Directory of held-out layout GTs")
+    p.add_argument("--val_layouts_lr", default=None, help="Directory of held-out layout LRs")
     p.add_argument("--width", type=int, default=32)
     p.add_argument("--enc_blocks", type=str, default="1,1,1,1")
     p.add_argument("--hr_blocks", type=int, default=2)
@@ -136,6 +138,15 @@ def main():
                               num_workers=args.num_workers, pin_memory=True,
                               drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=2)
+    
+    val_layouts_loader = None
+    if args.val_layouts_gt and args.val_layouts_lr:
+        val_layouts_full = PairedRestorationDataset(
+            args.val_layouts_gt, args.val_layouts_lr, channels=args.channels,
+            patch_size=args.patch_size, train=False,
+        )
+        val_layouts_loader = DataLoader(val_layouts_full, batch_size=1, shuffle=False, num_workers=2)
+        print(f"Val Layouts (OOD): {len(val_layouts_full)}")
 
     model = NAFNetSR(channels=args.channels, width=args.width, scale=2,
                      enc_blk_nums=enc_blocks, dec_blk_nums=dec_blocks,
@@ -237,6 +248,15 @@ def main():
                 deg, gt = deg.to(device), gt.to(device)
                 tot += psnr(model(deg), gt)
         val_psnr = tot / len(val_loader)
+        
+        val_psnr_layouts = 0.0
+        if val_layouts_loader:
+            tot_lay = 0.0
+            with torch.no_grad():
+                for deg, gt in val_layouts_loader:
+                    deg, gt = deg.to(device), gt.to(device)
+                    tot_lay += psnr(model(deg), gt)
+            val_psnr_layouts = tot_lay / len(val_layouts_loader)
 
         meta = {"epoch": epoch, "best_psnr": max(best_psnr, val_psnr),
                 "args": {**vars(args), "enc_blocks": enc_blocks,
@@ -260,8 +280,9 @@ def main():
 
         skip_note = f" | SKIPPED {n_skip}" if n_skip else ""
         star = "  <- best" if val_psnr >= best_psnr else ""
+        lay_note = f" | val_ood {val_psnr_layouts:.3f}" if val_layouts_loader else ""
         print(f"Ep {epoch+1}/{args.epochs} | loss {avg_loss:.4f} | "
-              f"val_psnr {val_psnr:.3f} dB | lr {scheduler.get_last_lr()[0]:.2e} "
+              f"val_in {val_psnr:.3f} dB{lay_note} | lr {scheduler.get_last_lr()[0]:.2e} "
               f"| {time.time()-t0:.0f}s{skip_note}{star}")
 
     print(f"\nDone. Best {best_psnr:.3f} dB -> {out_dir}/best.pth")
