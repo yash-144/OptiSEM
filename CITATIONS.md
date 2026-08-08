@@ -24,7 +24,7 @@ In accordance with the competition guidelines allowing external data, and to pro
 1. **LPIPS (Learned Perceptual Image Patch Similarity)**
    - **Source:** [https://github.com/richzhang/PerceptualSimilarity](https://github.com/richzhang/PerceptualSimilarity)
    - **Citation:** Zhang, R., Isola, P., Efros, A. A., Shechtman, E., & Wang, O. (2018). The Unreasonable Effectiveness of Deep Features as a Perceptual Metric. In *CVPR*.
-   - **Usage:** Incorporated directly into our loss function (at 10% weighting) to ensure our model does not collapse into blurry PSNR optimization, actively preserving perceptual structures.
+   - **Usage:** Incorporated directly into our loss function (at 10% weighting), utilizing pre-trained AlexNet weights, to ensure our model does not collapse into blurry PSNR optimization, actively preserving perceptual structures.
 
 ## PyTorch Modules
 - `pytorch_msssim`: Used for differentiable SSIM loss computation (MIT License).

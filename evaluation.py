@@ -171,8 +171,8 @@ def run_tiled(model, batch, device, use_amp):
 
 def main():
     p = argparse.ArgumentParser(description="KLA Hackathon Evaluation Script")
-    p.add_argument("input_dir")
-    p.add_argument("output_dir")
+    p.add_argument("--input_directory", dest="input_dir", required=True)
+    p.add_argument("--output_directory", dest="output_dir", required=True)
     p.add_argument("--checkpoint", default=None,
                    help="Defaults to <script_dir>/checkpoints/best.pth")
     p.add_argument("--channels", type=int, default=1)
@@ -219,11 +219,19 @@ def main():
 
     t0 = time.perf_counter()
     n = 0
+    t_compute = 0.0
     for shape, items in groups.items():
         for i in range(0, len(items), args.batch_size):
             chunk = items[i:i + args.batch_size]
             batch = torch.from_numpy(np.stack([c[1] for c in chunk]))
-            out = run_tiled(model, batch, device, use_amp).cpu().numpy()
+            
+            c0 = time.perf_counter()
+            out = run_tiled(model, batch, device, use_amp)
+            if device == "cuda":
+                torch.cuda.synchronize()
+            t_compute += (time.perf_counter() - c0)
+            
+            out = out.cpu().numpy()
             for (path, _, meta), pred in zip(chunk, out):
                 rel_path = path.relative_to(in_dir)
                 out_path = out_dir / rel_path.parent / path.stem
@@ -235,7 +243,8 @@ def main():
     dt = time.perf_counter() - t0
 
     print(f"Done. {n} images -> {out_dir}")
-    print(f"Total {dt:.3f}s | {dt / max(n, 1) * 1000:.2f} ms/image")
+    print(f"Total: {dt:.3f}s | {dt / max(n, 1) * 1000:.2f} ms/image (I/O + Compute)")
+    print(f"Compute: {t_compute:.3f}s | {t_compute / max(n, 1) * 1000:.2f} ms/image")
 
 
 if __name__ == "__main__":

@@ -122,6 +122,10 @@ def main():
     val_set = set(val_indices)
     train_indices = [i for i in range(len(train_full)) if i not in val_set]
 
+    import json; json.dump(
+        [Path(train_full.pairs[i][1]).stem for i in val_indices],
+        open("val_stems_D.json", "w"))
+
     train_ds = Subset(train_full, train_indices)
     val_ds = Subset(val_full, val_indices)
     print(f"Train {len(train_ds)} | Val {len(val_ds)} (stride {args.val_stride})")
