@@ -21,6 +21,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
+from degradation_engine import Degrader
 
 
 def _list_images(root):
@@ -33,13 +34,14 @@ def _list_images(root):
 
 class PairedRestorationDataset(Dataset):
     def __init__(self, gt_dir, degraded_dir, channels=1, patch_size=96, train=True,
-                 synth_prob=0.0, noise_a=0.1673, noise_p=0.811):
+                 synth_prob=0.0):
         self.channels = channels
         self.patch_size = patch_size
         self.train = train
         self.synth_prob = synth_prob
-        self.noise_a = noise_a      # sigma(mu) = noise_a * mu**noise_p
-        self.noise_p = noise_p      # fitted: Var = 0.0280 * mu^1.622
+        
+        # Instantiate the exact KLA physics degradation engine
+        self.degrader = Degrader() if train else None
 
         gt_files = _list_images(gt_dir)
         deg_files = _list_images(degraded_dir)
@@ -69,45 +71,16 @@ class PairedRestorationDataset(Dataset):
         return len(self.pairs) + len(self.unpaired_gt)
 
     def _synth_degrade(self, gt_patch):
-        """gt_patch: [C, 2*ps, 2*ps] in [0,1]  ->  degraded [C, ps, ps]."""
-        x = gt_patch.unsqueeze(0)
+        """gt_patch: [C, ps, ps] in [0,1]  ->  degraded [C, ps/2, ps/2]."""
+        # Convert to numpy for Degrader, shape (H, W)
+        gt_np = gt_patch.squeeze(0).numpy()
+        lr_np, gt_norm_np = self.degrader(gt_np)
         
-        # 30% chance to use the empirically fitted power-law noise
-        if random.random() < 0.3:
-            mode = random.choice(["bicubic", "bilinear", "area"])
-            if mode == "area":
-                lr = F.interpolate(x, scale_factor=0.5, mode="area")
-            else:
-                lr = F.interpolate(x, scale_factor=0.5, mode=mode, align_corners=False, antialias=True)
-            lr = lr.squeeze(0)
-            scale = random.uniform(0.0, 2.5)
-            # Use .abs() instead of clamp_min(0.0) to preserve signal range
-            sigma = self.noise_a * scale * lr.abs().pow(self.noise_p)
-            return lr + torch.randn_like(lr) * sigma
-
-        # 70% chance to use the official 3 degradations in random order
-        order = [0, 1, 2]
-        random.shuffle(order)
+        # Back to torch tensors [C, H, W]
+        lr = torch.from_numpy(lr_np).unsqueeze(0)
+        gt_norm = torch.from_numpy(gt_norm_np).unsqueeze(0)
         
-        curr = x
-        for op in order:
-            if op == 0:
-                # Additive Gaussian
-                sigma = random.uniform(0.01, 0.15)
-                curr = curr + torch.randn_like(curr) * sigma
-            elif op == 1:
-                # Speckle (Multiplicative)
-                sigma = random.uniform(0.05, 0.3)
-                curr = curr + curr * torch.randn_like(curr) * sigma
-            elif op == 2:
-                # Downsample
-                mode = random.choice(["bicubic", "bilinear", "area"])
-                if mode == "area":
-                    curr = F.interpolate(curr, scale_factor=0.5, mode="area")
-                else:
-                    curr = F.interpolate(curr, scale_factor=0.5, mode=mode, align_corners=False, antialias=True)
-                    
-        return curr.squeeze(0)
+        return lr, gt_norm
 
     def _load(self, path):
         if path.endswith('.npy'):
@@ -164,7 +137,7 @@ class PairedRestorationDataset(Dataset):
             gt = gt[:, top * 2:(top + ps) * 2, left * 2:(left + ps) * 2]
 
             if force_synth or (self.synth_prob > 0 and random.random() < self.synth_prob):
-                deg = self._synth_degrade(gt)
+                deg, gt = self._synth_degrade(gt)
 
             if random.random() < 0.5:
                 deg, gt = deg.flip(-1), gt.flip(-1)
