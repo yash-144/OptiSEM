@@ -220,9 +220,13 @@ def main():
     t0 = time.perf_counter()
     n = 0
     t_compute = 0.0
+    # Optimal batch sizes determined via timing sweeps
+    BS_BY_PIXELS = {128*128: 8, 256*256: 4, 512*512: 4}
+    
     for shape, items in groups.items():
-        for i in range(0, len(items), args.batch_size):
-            chunk = items[i:i + args.batch_size]
+        bs = BS_BY_PIXELS.get(shape[-1] * shape[-2], args.batch_size)
+        for i in range(0, len(items), bs):
+            chunk = items[i:i + bs]
             batch = torch.from_numpy(np.stack([c[1] for c in chunk]))
             
             c0 = time.perf_counter()
